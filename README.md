@@ -1,4 +1,4 @@
-# BLDC Motor Controller: Arduino, 3-Phase Inverter & Custom PCB
+# BLDC Motor Controller (Arduino, PI Control and Custom PCB)
 
 Sensored 6-step BLDC motor control built around an Arduino and three IR2112 half-bridge gate drivers. It covers open-loop speed control, closed-loop PI speed control, hardware overcurrent protection and a KiCad PCB layout. The simulation was done in Proteus.
 
