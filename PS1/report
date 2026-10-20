@@ -1,0 +1,314 @@
+PS-1
+
+Connections and components outline-
+
+Arduino-
+
+A0- Potentiometer wiper to control speed
+
+13- Input from comparator to check for overcurrent
+12- Input from button switch to toggle between CCW and CW (CCW while pressed)
+10- Output to LIN of IR2112 of phase C
+9- Output to HIN of IR2112 of phase C
+6- Output to LIN of IR2112 of phase B
+5- Output to HIN of IR2112 of phase B
+4- Output to LIN of IR2112 of phase A
+3- Output to HIN of IR2112 of phase A
+2- Input from hall sensor A (s_a)
+7- Input from hall sensor B (s_b)
+8- Input from hall sensor C (s_c)
+
+Potentiometer for speed control- Connected between 5V and GND (1k)
+
+BLDC (model in Proteus BLDC-STAR)(connections apart from Arduino)- 
+s_a- Connected via pullup resistor of 1k to 5V
+s_b- Connected via pullup resistor  of 1k to 5V
+s_c- Connected via pullup resistor of 1k to 5V
+a- Connected between source of AH and drain of AL
+b- Connected between source of BH and drain of BL
+c- Connected between source of CH and drain of CL
+
+MOSFETs and IR2112 drivers-
+
+For Phase A-
+
+MOSFET AH-
+Drain- VCC
+Gate- HO of IR2112 of phase A via pullup of 1k
+Source- Drain of AL
+
+MOSFET AL-
+Drain- Source of AH
+Gate- LO of IR2112 of phase A via pullup of 1k
+Source- Shunt of 0.1 ohm
+
+IR2112 A- 
+SD- GND
+COM- GND
+VCC- 12V
+Capacitor(0.1 muF) between VB and VS
+VS- Phase A
+Diode between VCC and VB
+
+For Phase B-
+
+MOSFET BH-
+Drain- VCC
+Gate- HO of IR2112 of phase B via pullup of 1k
+Source- Drain of BL
+
+MOSFET BL-
+Drain- Source of BH
+Gate- LO of IR2112 of phase B via pullup of 1k
+Source- Shunt of 0.1 ohm
+
+IR2112 B- 
+SD- GND
+COM- GND
+VCC- 12V
+Capacitor(0.1 muF) between VB and VS
+VS- Phase B
+Diode between VCC and VB
+
+For Phase C-
+
+MOSFET CH-
+Drain- VCC
+Gate- HO of IR2112 of phase C via pullup of 1k
+Source- Drain of CL
+
+MOSFET CL-
+Drain- Source of CH
+Gate- LO of IR2112 of phase C via pullup of 1k
+Source- Shunt of 0.1 ohm
+
+IR2112 C- 
+SD- GND
+COM- GND
+VCC- 12V
+Capacitor(0.1 muF) between VB and VS
+VS- Phase C
+Diode between VCC and VB
+
+Shunt of 0.1 ohm- Connected between source of the 3 LOW MOSFETs and GND
+
+Comparator- 
+Non- inverting- Above shunt of 0.1 ohm
+Inverting- Wiper of potentiometer connected between 5V and GND set for Vref of around 0.6V
+Power terminals- Connected to 5V and GND
+
+Error experienced-
+I experienced a bunch of timestep too small errors in Proteus which I fixed by allowing more error and setting the system animation settings for better convergence.
+
+Explanation of circuit design and function-
+
+Hall sensors-
+
+A BLDC motor works without brushes, therefore, to spin it, current is driven through specific phase windings in a specific direction, which creates magnetic fields that attract/repel the rotor's permanent magnets, causing it to rotate. 
+In order to find out which phases should have magnetic fields energized in which polarities, hall sensors are used to determine the current position of the rotor to find out which position to rotate to next.
+The hall sensors determine the rotor’s position by measuring the magnetic fields that are present in the current position.
+There are 6 steps to rotate the rotor through 3 phases where a phase may be in any 2 different polarities or floating and at any given time 2 phases are energized in opposite polarities and one is floating.
+There is more to the theory behind BLDC motors but this simple understanding of its functionality helped me solve the PS.
+
+In order to find out which hall sensors are activated in which position, I set the position of the rotor and checked which hall sensors are on and which are off.
+
+For this, I needed to have control over the energizations of the magnetic fields of the 3 phases to set the position of the rotor which brings me to the next step.
+
+MOSFETs-
+
+The Arduino cannot directly energize the motor windings; its pins can only supply a few mA at 5V, while the motor phases need several A of current at 12V. 
+MOSFETs act as switches by which a small control signal on the gate (from the Arduino, indirectly) determines whether a much larger current is allowed to flow from drain to source. 
+By placing one high-side and one low-side MOSFET per phase , each phase winding's terminal can be switched to either +12V (high-side on) or GND (low-side on).
+This allows the Arduino to decide which direction current flows in, deciding the magnetic polarity while also allowing the higher current required to drive the motor.
+The possible states for each phase are-
+High-side ON, Low-side OFF- phase terminal connects to +12V- current flows into that winding
+Low-side ON, High-side OFF- phase terminal connects to GND- current flows out of that winding (i.e., current returns through it)
+Both OFF- phase terminal is floating/high-impedance- no current flows through that winding at all (this is the "unused" third phase during any given 6-step interval)
+These states are achieved by energizing the high or low-side MOSFETS of each phase whenever necessary as controlled by the arduino.
+
+Why IR2112 drivers are required-
+
+While the Arduino's 5V output is technically above a typical MOSFET's threshold voltage (Vth approx 1-2V), simply exceeding Vth is not sufficient to turn a MOSFET on efficiently. To achieve low ON-resistance (operating in the triode region rather than saturation), Vgs needs to be well above Vth typically around 10–12V for the MOSFETs used here. Driving Vgs to only around 5V would leave the MOSFET partially on, with significant resistance while carrying several amps of current, causing high power dissipation and heat. This alone means Arduino's 5V logic level is inadequate to properly drive these MOSFETs, and a driver capable of providing a higher gate voltage is needed.
+This requirement is met for the low-side MOSFETs, since their source terminal is fixed at GND- a driver can simply reference a fixed 12V supply to pull the gate 12V above this constant 0V reference.
+For the high-side MOSFETs, their source terminal is connected to the phase output node, which switches between roughly 0V and 12V depending on the current commutation state. 
+To turn this MOSFET fully on, the gate must be held approximately 12V above whatever the source is currently sitting at.
+A simple fixed 12V supply cannot provide this, since the required gate voltage is a constantly shifting target, not a fixed value.
+Bootstrapping-
+The IR2112 solves this using a bootstrap circuit, consisting of a diode and capacitor connected between the 12V rail, the VB pin, and the VS pin for each of the 3 IR2112 drivers driving one phase each.
+While the low-side MOSFET is ON (VS is near 0V), the bootstrap capacitor charges up through the bootstrap diode, from the 12V rail, up to nearly 12V.
+When the high-side MOSFET needs to turn ON, the driver uses this now-charged capacitor between the VB and VS pins as its floating supply. Since the capacitor's voltage doesn't depend on an absolute reference only on the charge stored across it, it acts as a floating 12V supply relative to VS. This floating supply is what the IR2112 uses internally to drive the high-side gate (HO) to VS + 12V, correctly turning the MOSFET fully on regardless of the phase node's instantaneous voltage.
+The bootstrap diode also prevents this stored charge from discharging back into the 12V rail once VS rises above 0V during high-side conduction, preserving the floating supply until the next low-side conduction interval recharges it.
+Comparator setup for overcurrent-
+
+Option considered- one shunt per phase (3 shunts total)
+This would give per-phase current visibility, but adds 2 extra shunts, 2 extra comparators, and more complexity for overcurrent protection specifically. I decided after testing my circuit with ammeters in each phase that an overcurrent protection setup that measured the total current rather than in each phase was sufficient.
+Why the common return path works for this- Since the 6-step commutation only ever has 2 phases active at once, all conducted current must pass through whichever low-side MOSFET is currently ON and all 3 low-side sources are tied together at one shared node before reaching GND. Placing a single shunt at this shared junction means it sees the total current returning through any active phase, regardless of which one is currently conducting, which enabled me to just use a single shunt and comparator.
+Hence I connected the non-inverting terminal of the comparator above the shunt and set the reference voltage to shunt times the current I measured using an ammeter as the Vref using a potentiometer between 5V and 0V connecting its wiper to the inverting terminal of the comparator.
+The overcurrent is measured using a shunt. I measured the current through the wire with an ammeter then set Vref=I * R where R = 0.1 ohm shunt resistance and my Vref is approximately 0.8V.
+Pole pairs- 
+Before I go to speed control where I use RPM, I want to explain how the number of pole pairs affect the RPM calculation in a motor.
+The rotor has small permanent magnets fixed around it alternating between N and S, one pair of N and S form a pole pair. A motor with a single pole pair has just one pair of North-South magnets but a motor with two pole pairs has two pairs of N-S magnets.
+When we cycle through 6 commutation steps, one electrical revolution is completed but the physical shaft need not have spun a full revolution.
+If the motor has only 1 pole pair then one electrical revolution implies 1 mechanical revolution.
+Else, since there are multiple N-S pairs around the rotor, the rotor has to turn only the angle worth (360)/No. of pole pairs to complete an electrical revolution and hence, one electrical revolution is not equal to one mechanical revolution. 
+However, since the motor I am using on Proteus has only one pole pair this is not a cause of concern for me while calculating RPM.
+Speed control- 
+I first tried PWM-based speed control, setting duty cycle based on potentiometer input. However, PWM duty cycle only indirectly influences RPM (via average torque delivered), and without a proper torque-speed relationship or closed-loop feedback (part of PS2), precisely targeting a specific RPM this way was difficult.
+Instead, I mapped the potentiometer's range to the time delay between commutation steps directly. Since electrical commutation frequency has a direct relationship to mechanical RPM, this gave a much more precise way to target a specific speed, even without closed-loop feedback. This approach did show some instability current (and correspondingly RPM) oscillated slightly above and below the target rather than settling perfectly but it stabilized within an acceptable range near the target RPM, and gave noticeably more predictable control than the PWM approach would have.
+
+
+Initial setup experimentation-
+The primary problem I faced while solving this PS was finding out the hall sensor value for each position.
+I already knew each step in the commutation process-
+AH HIGH BL HIGH
+AH HIGH CL HIGH
+BH HIGH CL HIGH
+BH HIGH AL HIGH
+CH HIGH AL HIGH
+CH HIGH BL HIGH
+In order to find the hall sensor value for each step, I used the following code to set a step then print the hall a,b,c values for that step.
+#define AH 3
+#define AL 4
+#define BH 5
+#define BL 6
+#define CH 9
+#define CL 10
+
+
+#define HALL_A 2
+#define HALL_B 7
+#define HALL_C 8
+
+
+#define DIR_SWITCH 12
+
+
+void allOff() {
+  digitalWrite(AH, LOW); digitalWrite(AL, LOW);
+  digitalWrite(BH, LOW); digitalWrite(BL, LOW);
+  digitalWrite(CH, LOW); digitalWrite(CL, LOW);
+}
+
+
+void setStep(byte step) {
+
+
+  switch(step)
+  {
+    case 1:      // AH BL
+      digitalWrite(AH, HIGH);
+      digitalWrite(BL, HIGH);
+      break;
+
+
+    case 2:      // AH CL
+      digitalWrite(AH, HIGH);
+      digitalWrite(CL, HIGH);
+      break;
+
+
+    case 3:      // BH CL
+      digitalWrite(BH, HIGH);
+      digitalWrite(CL, HIGH);
+      break;
+
+
+    case 4:      // BH AL
+      digitalWrite(BH, HIGH);
+      digitalWrite(AL, HIGH);
+      break;
+
+
+    case 5:      // CH AL
+      digitalWrite(CH, HIGH);
+      digitalWrite(AL, HIGH);
+      break;
+
+
+    case 6:      // CH BL
+      digitalWrite(CH, HIGH);
+      digitalWrite(BL, HIGH);
+      break;
+  }
+}
+
+
+void setup()
+{
+  pinMode(AH, OUTPUT);
+  pinMode(AL, OUTPUT);
+  pinMode(BH, OUTPUT);
+  pinMode(BL, OUTPUT);
+  pinMode(CH, OUTPUT);
+  pinMode(CL, OUTPUT);
+
+
+  pinMode(HALL_A, INPUT);
+  pinMode(HALL_B, INPUT);
+  pinMode(HALL_C, INPUT);
+
+
+  pinMode(DIR_SWITCH, INPUT_PULLUP);
+
+
+  Serial.begin(9600);
+
+
+}
+
+
+void loop()
+{
+    setStep(3);
+    delay(2000);
+
+
+    byte hall = 0;
+
+
+    if (digitalRead(HALL_A)) hall |= 1;
+    if (digitalRead(HALL_B)) hall |= 2;
+    if (digitalRead(HALL_C)) hall |= 4;
+
+
+    Serial.println(hall);
+
+
+}
+The code simply defines each step then sets the step and prints the hall value.
+I cycled between steps 1, 2, 3, 4, 5, 6 manually changing this code though it shows only setStep(3) in the doc.
+I found out that the hall value oscillated between 2 values for each step. By trial and error, I discovered that one of them, when used, made the motor spin CCW and the other CW.
+I figured this out by reasoning that since I set a position based on a hall value, taking one prev hall value (printed when the rotor oscillates backward) will make it spin CW and taking the hall value printed while the rotor oscillates forward will make it spin CCW.
+Using this information, I was able to write the code to solve the PS.
+Startup-
+Another problem I faced was that the motor was not able to start by itself using the hall values.
+So, I included in my code in setup() a manual commutation loop setting steps from 1 to 6 to start the motor before going into the actual process of spinning using hall sensors.
+Code explanation-
+The initial definitions of the pins are self explanatory.
+The variable lastHall is used to record the last hall value so that commutation can occur when the hall sensor value changes.
+faultState records whether an overcurrent issue has occurred.
+hallPeriod stores the time between 2 commutations to control the RPM.
+lastHallTime is used to store the previous time the hall sensors were read.
+Specifically,millis()-lastHallTime > hallPeriod is used to check if the next step should be set for RPM control.
+The overCurrent() function turns off all MOSFETs and sets faultState to true.
+The allOff function turns off all MOSFETs.
+The setStep function simply performs each commutation step according to the step number it is given. For example, setStep(1) sets AH HIGH BL HIGH.
+startMotor(ccw) is what I mentioned previously, it cycles through each of the 6 steps once fast in order decided by whether the motor has to rotate CW or CCW.
+I found the order by again setting each step and observing manually where the rotor of the motor spun in the simulation.
+setup()-
+The input and output definitions are self explanatory.
+lastHall is initially set to 255 because the hall value first read in the loop must be less than 255 (less than 8) hence, it’s guaranteed that the hall value changes.
+The button pin (using INPUT_PULLUP hence LOW when pressed) is read and stored in bool ccw.
+If ccw is false then the motor must spin CW and vice versa.
+The startMotor(ccw) is called provided an overcurrent issue has not occurred.
+loop()-
+Everytime the loop runs, the FAULT_PIN (comparator pin goes high with overcurrent) is read and if it is HIGH, overCurrent() is called to turn off the MOSFETs.
+If it is not HIGH, the code moves on to read the potentiometer voltage and map it to the desired time period between two consecutive steps.
+The hall value is read.
+If the current hall value is not equal to the last hall value, lastHall=hall and the period between the lastHall and current hall is checked to see if it has to be changed in order to control the speed using if(now-lastHallTime>hallPeriod).
+If the condition is satisfied, the required step is set using the setStep function for CW and CCW according to the value of the variable bool ccw.
+Which step has to be set for which hall value is known because I already checked the hall value for each step previously for both CW and CCW and noted down the values.
+After the step is set lastHallTime is set to the present time and the next iteration of the loop starts.
+Overcurrent-
+Though the current is cutoff immediately, the rpm falls slowly as there is not much friction in the simulation to make it stop quickly.
+As seen in the demonstration, current falls to 0.
