@@ -1,0 +1,204 @@
+PS- 2 
+
+Since the main working behind the hall sensors and other basic functioning of the motor in my documentation of PS- 1, I will cover only the unique aspects of PI speed control and the extra details not explained in PS-1 in this documentation of PS- 2.
+There are no extra connections or hardware I used, the main difference is in the software, that is, the algorithm/method used for speed control of the motor.
+While PS-1 achieved speed control through open-loop commutation timing, PS-2 has closed-loop control- the motor's actual RPM is measured via the Hall sensors and continuously compared against a target speed (set by the potentiometer), with a PI controller adjusting the PWM to minimize the error between them. 
+
+A few things to note hardware wise before I explain the code-
+I had to tweak the friction settings of the motor and the load used using trial and error along with Kp and Ki in order to achieve my target RPM range of 200RPM to 500RPM.
+The reason I tweaked the friction and load is because while working on an open loop speed control system for PS- 1, I learned that PWM control is a bit unreliable in terms of limiting the speed unless there is enough friction/load to control the motor’s speed without it accelerating uncontrollably. Hence, I incorporated a load and tweaked friction settings as I had to use PWM in this closed-loop PI controller so that the motor is not super- sensitive, i.e, does not experience huge changes in RPM for small changes in PWM.
+Due to the tweaking for this specific RPM range, using a different range of RPM may result in suboptimal settling time or overshoot.
+Depending on the required range of RPM, the values of Kp, Ki and the motor load can be controlled for good performance.
+
+PS- 2 asked for a rotary encoder output cased controller where the rotary encoder output is used to compute real time RPM, the potentiometer is used to set the desired RPM and the PI control loop used to adjust the PWM duty cycle to bring the actual RPM close to the target RPM.
+
+Rotary encoder-
+
+A rotary encoder is like a small disc mounted on the motor’s shaft with magnetic marks and a sensor that reads the magnetic values of the encoder as it spins. When the sensor reads a value, it produces an electrical pulse (LOW to HIGH then to LOW) and every pulse the shaft moves by a small known angle.
+By this mechanism, we know how much the shaft has moved but not in which direction. To solve this, encoders normally output two channels A and B. By checking which channel changes first, we get to know which direction the motor is spinning in.
+The problem I faced was, I could not find a rotary encoder in Proteus to work with the model of the BLDC motor I chose. Hence I decided to use the input from the hall sensors instead.
+
+
+Why using Hall sensor input work-
+
+The total hall sensor output we gather changes 6 times per electrical rotation which is very low resolution info compared to an encoder which will give very fine or low-error information due to changes at very small angles.
+Despite this drawback, the fundamental function is about the same, there is just a trade-off in terms of accuracy in speed calculation.
+
+With an encoder, we can count the number of pulses over a short period of time to calculate the RPM whereas with hall sensors, we can measure the time between one hall transition and the next to calculate RPM from that timing.
+
+PI controller-
+We want something (here, motor RPM) to reach and stay at a specific target value. Setting a fixed signal (like a fixed PWM duty cycle) doesn't guarantee this, the actual speed depends on many factors that can change or won’t be perfectly predicted in advance. A PI controller continuously measures the actual output, compares it to the target, and automatically adjusts the input to reduce the error.
+The Proportional (P) term compensates for the real- time or present error
+error = target value − actual value
+P term = Kp * error
+The bigger the gap between the target and actual values, the harder the controller pushes to close it. If the motor is way below target speed, the P term applies a large correction. As the motor gets closer to target, the error shrinks, and so does the P term.
+But I learned that a proportional controller, on its own, often settles at a speed slightly below the target, not exactly at it. This happens because as error shrinks toward zero, the P term's correction also shrinks toward zero but the motor still needs some ongoing drive signal just to keep spinning against friction/load. The system settles at whatever small, nonzero error still produces enough P-term correction to sustain that steady-state drive. This leftover gap is called steady-state error, and it's the specific problem the Integral term exists to fix.
+The integral term keeps a running total of error over time
+I term = Ki * integral(error)
+Even if the current error is small, if it's been persistently present for a while (accumulating in the integral term), this term keeps growing and adds extra push specifically targeting and eliminating that  steady-state error the P term alone couldn't fully close. Once the actual value reaches the target and stays there, the integral term holds steady at whatever value was needed to sustain that exact output achieving the target output.
+This combined correction value is then applied to the actual system being controlled in this case.
+Errors- I again experienced a bunch of timestep too small errors in Proteus which I fixed by allowing more error and setting the system animation settings for better convergence.
+
+Code explanation-
+Pin definitions
+#define AH 3
+#define BH 5
+#define CH 9
+High-side pins are specifically chosen from the Arduino’s PWM-capable pins (3, 5, 9), since these are the ones that will be actively PWM'd to control drive strength.
+#define AL 4
+#define BL 6
+#define CL 10
+Low-side pins are plain digital on/off, no PWM needed on these, since low-side just needs to fully connect a phase to ground when active.
+Remaining defines are unchanged from PS-1.
+Global variables-
+
+byte lastHall = 255;
+Stores the previous Hall reading, so the code can detect when it changes. Set to 255 initially (impossible Hall value) to guarantee the first real reading is treated as new.
+
+byte activeStep = 0;
+Tracks which commutation step (1–6) is currently applied, or 0 if none. This lets updateDuty() know which high-side pin to adjust without needing to re-derive it from the Hall value every time.
+
+
+volatile bool faultState = false;
+Same as PS-1
+
+unsigned long lastHallTime = 0;
+unsigned long lastPITime = 0;
+
+lastHallTime tracks the last Hall transition (for RPM calculation), the other tracks the last time the PI loop ran (since PI runs on its own independent schedule, not tied to Hall events).
+
+float measureRpm = 200;
+float targetRpm;
+measureRpm holds the current calculated actual speed (started at a reasonable default, 200, so the PI controller has a value to work with before the first real measurement arrives). targetRpm holds the desired speed, set from the potentiometer.
+float integral = 0;
+float error = 0;
+float correction = 0;
+error = targetRpm - measuredRpm
+integral = the accumulated sum of past errors over time
+correction = the final calculated adjustment to apply.
+float Kp = 2;
+float Ki = 1.2;
+Kp controls how strongly the controller reacts to the current error, Ki controls how strongly it reacts to accumulated past errors. I tuned these by trial and error.
+As the PS states, pwmDuty = Kp * error + Ki * integral(error)
+This formula is used to compensate for the error by control input.
+int pwmDuty = 0;
+const int PWM_MAX = 255;
+pwmDuty holds the current PWM value being applied. PWM_MAX bounds the valid range to 255.
+const int POLE_PAIRS = 1;
+As explained in PS- 1 number of pole pairs are used to convert electrical RPM into true mechanical RPM (In my model 1)
+const unsigned long PI_INTERVAL_MS = 1;
+How often (in milliseconds) the PI controller recalculates and applies a new duty cycle (Here, 1ms)
+
+overCurrent()
+Same as PS-1's version, with one addition- also resets activeStep to 0, ensuring updateDuty() won't try to keep adjusting PWM on a phase that's supposed to be shut down.
+allOff()
+Same as PS- 1
+setStep(step, duty)
+The same dead-time safety approach as PS-1 prevents the outgoing and incoming MOSFETs from briefly overlapping during a phase change.
+The high-side MOSFETs are set to duty instead of HIGH (PS- 1) for PWM control of speed.
+activeStep is also set to step for ease of updating.
+updateDuty(duty) 
+Just updates the PWM value on whichever high-side pin is already active. This is safe because it never changes which phase is active, only how strongly the already-selected phase is being driven so there's no shoot-through here, unlike a full step change. 
+readHall()
+Identical logic to PS-1
+hallToStep(hall, ccw)
+Same CW/CCW lookup tables from PS-1, returns the step number, rather than directly calling setStep().
+
+
+startKick(ccw)
+Same purpose as PS-1's startMotor()
+setup()
+lastHall, lastHallTime and lastPITime are set. (other aspects self explanatory/similar to PS- 1)
+loop()
+Same fault-checking pattern as PS-1
+bool ccw = (digitalRead(DIR_PIN) == LOW);
+int potValue = analogRead(POT_PIN);
+targetRpm = map(potValue, 0, 1023, 200, 500);
+Reads direction and potentiometer each loop pass. Unlike PS-1 (where the pot sets a delay/period directly), here the pot sets a target RPM (200–500), that is, the value the PI controller will try to achieve, rather than directly setting timing.
+if (hall != lastHall) {
+Checks if the Hall sensors have changed since the last loop and only enters this block on an actual transition.
+
+
+unsigned long period = now - lastHallTime;
+lastHallTime = now;
+lastHall = hall;
+Records how much time passed since the last transition (period), updates the timestamp, and updates lastHall.
+ if (period > 0) {
+    measureRpm = (60000.0 / (period * 6.0)) / POLE_PAIRS;
+  }
+Calculates actual RPM from the time between this Hall transition and the last one, as explained earlier (electrical RPM converted to mechanical RPM via pole pairs). The period > 0 check avoids a zero-division error in case two transitions are read at the exact time.
+ byte step = hallToStep(hall, ccw);
+  if (step != 0) {
+    setStep(step, pwmDuty);
+  } else {
+    allOff();
+    activeStep = 0;
+  }
+}
+Checks which commutation step hall value corresponds to (given the current direction). If valid, apply it using the current pwmDuty value (whatever the PI controller last calculated) If the hall reading doesn't match any valid step , everything is turned off.
+unsigned long piNow = millis();
+if ((piNow - lastPITime) >= PI_INTERVAL_MS) {
+  dt_update(piNow);
+}
+Completely independent of the hall-checking block. This function checks every loop pass, whether enough time (1ms) has passed since the PI controller last ran. If so, it calls dt_update() to recalculate and apply a fresh duty cycle. This runs on its own schedule whether a Hall transition just happened or not.
+dt_update(piNow)
+float dt = (piNow - lastPITime) / 1000.0;
+lastPITime = piNow;
+Calculates the time (dt) since the PI controller last ran, converted to seconds (dividing by 1000, since millis() is in milliseconds). This is used to correctly scale the integral term based on real- time, rather than assuming a fixed interval.
+error = targetRpm - measureRpm;
+Error calculation
+
+integral += error * dt;
+Accumulates error over time, scaled by how much time actually passed.
+
+float integralMax = PWM_MAX / max(Ki, 0.0001);
+if (integral > integralMax)  integral = integralMax;
+if (integral < -integralMax) integral = -integralMax;
+Without this, if the motor is far from target for a long time, the integral could grow very large and once the motor finally reaches target speed, this excessively large accumulated value would keep pushing the correction, causing overshoot. 
+correction = Kp * error + Ki * integral;
+The PI formula to calculate the correction/pwmDuty
+
+pwmDuty = constrain((int)correction, 0, PWM_MAX);
+Converts the correction into an actual PWM value (0-255) by constraining
+
+updateDuty(pwmDuty);
+Applies this newly calculated duty cycle immediately to whichever phase is currently active
+
+
+
+Kp and Ki selection-
+
+I initially chose a pretty low value for both Kp and Ki to avoid unstable oscillations, then increased the values while observing the response.
+
+I first increased Kp since it directly affects the responsiveness (I observed a very large settling time) and then scaled back when I observed significant  overshoots.
+
+I then increased Ki to try and reduce the steady-state error left after tuning Kp. While increase in Ki reduced the steady state error, I had to scale back due to a few reasons-
+1) Significant overshoots
+2) Unstable oscillations
+3) Timestep too small error in Proteus
+
+Therefore, I made a tradeoff between setting the simulation options in Proteus to be more forgiving of error, tuning Kp to reduce steady- state error and oscillations and reducing settling time.
+
+After a lot of testing of Kp and Ki  values, I arrived at the ones I used in the program.
+
+
+Settling time and steady-state error-
+
+As I mentioned earlier, I had to make a trade off as Proteus was giving a timestep too small error on increasing Ki beyond a certain threshold despite allowing a decent amount of error in the simulation settings.
+Hence, I decided to allow some steady-state error with the Ki to accommodate for this problem.
+
+At target 200RPM (low point)- 
+I observed an overshoot of about 15RPM or so, that is, the RPM jumped to 215 when starting from 0.
+The settling time is demonstrated in the video but the response is decently fast.
+However, the RPM actually settles at around 190-195 due to steady-state error that I was not able to eliminate by increasing Ki due to the timestep too small error and overshoots.
+
+At target 500RPM (high point)-
+I did not observe any overshoot.
+The settling time is again demonstrated in the video.
+The RPM again settles down to about 490 RPM due to steady-state error.
+
+The asymmetry of overshoot in the case of 200RPM target but lack thereof in the case of 500RPM target is probably because friction increases with speed. At 500 RPM, this stronger friction naturally helps slow down any overshoot before it happens. At 200 RPM, friction is much weaker, so there is less resistance to stop the motor from overshooting past the target before settling back down.
+
+One thing to note is that, in the startup of the motor, I spin it at a pretty slow speed for one rotation before speeding up by using the PWM values and hall sensor readings.
+This might contribute to the motor to appear slow from start-up, however, once it starts, the responsiveness is fast as demonstrated in the video.
+I spin it slowly at startup so that it has a sustainable RPM to reach the next hall value after completing one rotation to be continued by the PWM cycle without decreasing rapidly and stopping midway.
