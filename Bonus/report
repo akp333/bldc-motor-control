@@ -1,0 +1,53 @@
+Bonus task-
+
+I made the same schematic as I used in PS- 1 apart from omitting some components in KiCA.
+
+Changes in connections-
+
+BLDC Motor absent 
+J2 Conn_01x03 present for connection to phases of BLDC
+Hall sensors can be connected directly to Arduino pins
+
+
+Button switch absent
+Can be directly connected to Arduino
+
+The driving ckt of the BLDC motor (U1- phase A, U2- phase B, U3- phase C) and comparator ckt is similar to that used in PS- 1 except in the comparator ckt, a voltage divider sets Vref instead of a potentiometer.
+
+
+J1 Conn_01x02 has +12V and +5V power in pins 1 and 2 respectively.
+
+In J3 Conn_01x08- 
+1- digital pin 13 (comparator output)
+2- digital pin 3 (HIN phase A)
+3- digital pin 4 (LIN phase A)
+4- digital pin 5 (HIN phase B)
+5- digital pin 6 (LIN phase b)
+6- digital pin 9 (HIN phase C)
+7- digital pin 10 (LIN phase C)
+8- GND
+
+Before going for the PCB power trace optimization, I annotated and footprinted the schematic with standard footprints after some online research.
+I was not entirely sure what footprints to give as I did not have much idea about the availability of components to actually make the PCB so I did my best to choose them after some research.
+
+I also ensured that I added PWR_FLAGs and the +V and -V part of the LM393 comparator after receiving warnings and errors on running the electrical rules checker
+
+PCB trace optimization-
+
+The copper traces carrying signals don’t need any change in thickness as they carry very low current and the default is more than sufficient to handle the current through them.
+
+For the power traces, I measured the current through them via an ammeter in the proteus simulation and obtained a max of approximately 7A in the phases/ overcurrent protection circuit. I obtained a value of approximately 2.2mm width which is what I used.
+
+Using standard 1oz copper, the traces were too thick to route on the PCB. Hence, I made a decision to use 2oz copper instead which significantly brought down the required width of the traces.
+To calculate the required width I input the max current, and the thickness (70mum for 2oz and 35mum for 1oz) while retaining the standard delta of 10 degree C change in temperature to obtain the required width from the KiCAD calculator itself.
+
+Then I used 2 layers to make all the connections according to my schematic using an 80mm by 80mm edge cut for the PCB.
+
+I made sure to make all the connections guided by the ratsnest lines provided by the software.
+I made sure to leave sufficient space near the MOSFETs and Conn_01x03 for the thick power traces to be comfortably routed which I had not left space for initially and learnt by experience.
+
+After completing the connections, I ran the design rules check to ensure my PCB was fine and checked the 3D view.
+
+Note on current spike-
+
+A very short current spik reaching approximately 8A was observed, too short to capture on an ammeter. I read that copper trace heating generally depends on sustained rather than instantaneous current,and it was impractically thick. Power trace widths are based on the maximum measured sustained current (~7A).
